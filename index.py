@@ -67,7 +67,20 @@ def get_url(fid: str, client: Client, pwd=None):
     if client == Client.PC:
         text = get(f'{ORIGIN}/{fid}', client).text
         if pwd:
-            params = find_first(r"^[^/]+?data *?: *?'([^']+?)'", text) + pwd
+            old_ver = find_first(r"^[^/]+?data *?: *?'([^']+?)'", text)
+            if old_ver:
+                params = old_ver + pwd
+            else:
+                try:
+                    for m in find_all(r"^\s*?[^/]+? ([^\d\s][\$\w]+? *?= *?'.*?')", text):
+                        exec(m.group(1))
+                    for m in find_all(r"^[^/]+?data *?: *?({.+?})", text):
+                        data = eval(m.group(1))
+                        if len(data.get('sign')) > 10:
+                            break
+                except Exception:
+                    pass
+                params = urlencode(data, quote_via=quote_plus)
         else:
             fn = find_first(r'iframe.+?src=\"([^\"]{20,}?)\"', text)
             text = get(f'{ORIGIN}/{fn}',  client).text
@@ -115,7 +128,7 @@ def fmt_size(num, suffix='B'):
 
 
 def get_ttl(url):
-    e = parse_qs(urlparse(url).query)['e'][0]
+    e = parse_qs(urlparse(url).query).get('e', time() + 600)
     return int(e) - int(time()) - 60
 
 
@@ -127,7 +140,7 @@ def get_full_info(cache_key, ttl, url):
 
     headers = requests.head(url, allow_redirects=False).headers
     info = {
-        'name': unquote(headers.get('Content-Disposition').split('filename= ')[-1]),
+        'name': unquote(headers.get('Content-Disposition').split('filename=')[-1].strip()),
         'size': fmt_size(int(headers.get('Content-Length'))),
         'url': url,
     }
@@ -146,7 +159,7 @@ def gen_json_response(code, msg, extra={}):
 @app.route('/', defaults={'path': ''})
 @app.route('/<path:path>')
 def catch_all(path):
-    if not re.match('.+\?.*url=.*lanzou.*\.com%2F[\w]{4,}.*', request.url):
+    if not re.match(r".+\?.*url=.*lanzou.*\.com%2F[\w]{4,}.*", request.url):
         return gen_json_response(
             -1,
             'invalid link',
